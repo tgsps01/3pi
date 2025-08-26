@@ -1,0 +1,149 @@
+target C {
+  platform: {
+    name: "rp2040",
+    board: "pololu_3pi_2040_robot"
+  },
+  single-threaded: true
+}
+
+import Display from "lib/Display.lf"
+import Motors from "lib/Motors.lf"
+// import AngleToDistance from "lib/Encoders.lf"
+import Encoders from "lib/Encoders.lf"
+import GyroAngle from "lib/IMU.lf"
+
+import Bump from "lib/Bump.lf"
+
+reactor Robot {
+input turn:bool
+input lefty:bool
+
+input righty:bool
+
+input tt: bool
+
+input move:bool
+input back_lf:bool
+input back_rf:bool
+output left_pwr:float
+output right_pwr:float
+initial mode TURNING {
+  reaction(move) -> DRIVING, left_pwr, right_pwr {=
+    printf("inside move reaction of turning should drive");
+    if(move->value) {
+      lf_set_mode(DRIVING);
+      lf_set(left_pwr, 0.3f);
+      lf_set(right_pwr, 0.3f);
+    }
+  =}
+}
+mode DRIVING {
+  reaction(lefty,righty,back_lf,back_rf) -> TURNING ,left_pwr, right_pwr {=
+    printf("Inside turn reaction of driviing");
+    
+    if(righty->value ) {
+      lf_set_mode(TURNING);
+
+      lf_set(left_pwr, 0.0f);
+      lf_set(right_pwr, 0.15f);
+    }
+    if(lefty->value ) {
+      lf_set_mode(TURNING);
+
+      lf_set(left_pwr, 0.15f);
+      lf_set(right_pwr, 0.0f);
+      
+    }
+
+    if(back_lf->value)
+    {        lf_set_mode(TURNING);
+
+      // Switch to TURNING mode after reversing
+      lf_set(left_pwr, 0.0f);
+      lf_set(right_pwr, -0.15f);
+
+    }    
+    if(back_rf->value)
+    {        lf_set_mode(TURNING);
+
+      lf_set(left_pwr, -0.15f);
+      lf_set(right_pwr, 0.00f);
+    }
+  =}
+  
+}
+
+
+
+
+
+}
+
+main reactor {
+robot = new Robot()
+display = new Display()
+m = new Motors()
+// dist = new AngleToDistance()
+gyro = new GyroAngle()
+encoder = new Encoders()
+bump =new  Bump()
+preamble {=
+  #include <stdio.h>
+  #include <pico/stdlib.h>
+  #include <hardware/gpio.h>
+  #include <time.h>
+      float w_d=0.0;
+  float g_z=0.0;
+=} 
+
+reaction(startup) -> robot.move {=
+  lf_set(robot.move, true);
+=}
+
+timer t(0, 100ms)
+reaction(t) -> encoder.trigger, gyro.trigger,bump.calibrate {=
+  lf_set(encoder.trigger, true);
+  lf_set(gyro.trigger, true);
+  lf_set(bump.calibrate,true);
+=}
+
+reaction(gyro.z) -> robot.move, robot.righty,robot.lefty, display.line3 {=
+  printf("triggered gyro %f\n", gyro.z->value);
+  static char buf[17];
+  snprintf(buf, 17, "gyro %f\n", abs((gyro.z->value)-g_z));
+  lf_set(display.line3, buf);
+  if(abs((gyro.z->value)-g_z)>90) {
+
+    lf_set(robot.move, true);
+    
+    g_z=gyro.z->value;
+  }
+=}
+
+reaction(encoder.left) -> robot.move, robot.righty,robot.lefty, display.line2 {=
+  printf("triggered encoder %d\n", encoder.left->value);
+  float wheel_dist = ((float)encoder.left->value/360) * 3.14 * 3.175;
+  static char buf[17];
+  snprintf(buf, 17, "ENC: %2.2f", wheel_dist-w_d);
+  lf_set(display.line2, buf);
+  if(wheel_dist-w_d > 60) {
+    lf_set(robot.righty, true);
+    w_d=wheel_dist;
+  }
+
+
+=}
+
+reaction(bump.left) -> robot.back_rf,robot.righty {=
+
+  lf_set(robot.back_rf,true);
+
+=}
+
+reaction(bump.right) -> robot.back_lf,robot.lefty {=
+  lf_set(robot.back_lf,true);
+=}
+robot.left_pwr -> m.left_power;
+robot.right_pwr -> m.right_power;
+
+}

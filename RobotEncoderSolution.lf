@@ -1,0 +1,70 @@
+target C {
+    platform: {
+      name: "rp2040",
+      board: "pololu_3pi_2040_robot"
+    },
+    single-threaded: true
+}
+
+import Display from "lib/Display.lf"
+import Encoders from "lib/Encoders.lf"
+
+reactor AngleToDistance {
+    input trigger: bool
+    output right_wheel: float   // Output in meters for right wheel
+    output left_wheel: float    // Output in meters for left wheel
+
+    encoder = new Encoders()
+
+    reaction(trigger) -> encoder.trigger {=
+        // Trigger the encoder reading
+        lf_set(encoder.trigger, true);
+    =}
+
+    reaction(encoder.left) -> left_wheel {=
+        // Conversion factor from degrees to meters based on wheel circumference
+        const float conversion_factor = 0.03175 / 360.0;
+
+        // Calculate distance for the left wheel
+        float ldistance = encoder.left->value * conversion_factor;
+        lf_set(left_wheel, ldistance);
+    =}
+
+    reaction(encoder.right) -> right_wheel {=
+        // Calculate distance for the right wheel
+                const float conversion_factor = 0.03175 / 360.0;
+        float rdistance = encoder.right->value * conversion_factor;
+        lf_set(right_wheel, rdistance);
+    =}
+}
+
+main reactor {
+    display = new Display()
+    distance = new AngleToDistance()
+    timer t(0, 1 sec)
+
+    reaction(t) -> distance.trigger {=
+        // Trigger the distance calculation every second
+        lf_set(distance.trigger, true);
+    =}
+
+    reaction(startup) -> display.line0 {=
+        // Initial display message
+        lf_set(display.line0, "Distance (m):");
+    =}
+
+    reaction(distance.left_wheel) -> display.line1 {=
+        // Display left wheel distance
+        static char buf[18];
+        snprintf(buf, 18, "L: %.3f m", distance.left_wheel->value);
+        lf_set(display.line1, buf);
+    =}
+
+    reaction(distance.right_wheel) -> display.line2 {=
+        // Display right wheel distance
+        static char buf[18];
+        snprintf(buf, 18, "R: %.3f m", distance.right_wheel->value);
+        lf_set(display.line2, buf);
+    =}
+}
+

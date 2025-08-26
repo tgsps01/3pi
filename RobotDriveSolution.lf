@@ -1,0 +1,71 @@
+/**
+ * Template for robot driving lab exercises. This template just periodically switches between a
+ * STOPPED and a DRIVING mode, updating the LCD display on each change of mode.
+ */
+ target C {
+    platform: {
+      name: "rp2040",
+      board: "pololu_3pi_2040_robot"
+    },
+    single-threaded: true
+}
+
+import Display from "lib/Display.lf"
+import Motors from "lib/Motors.lf"
+
+preamble {=
+    #include <motors.h>
+=}
+
+reactor Robot {
+    input drive: bool         // Toggle mode
+    output notify: string     // Notify of mode change
+    output pow_left: float    // Power for left motor
+    output pow_right: float   // Power for right motor
+
+    reaction(startup) -> notify, pow_left, pow_right {=
+        motors_init(1);              // Initialize motors
+        lf_set(notify, "INIT");      // Display initialization message
+        lf_set(pow_left, 0.0f);      // Start with motors stopped
+        lf_set(pow_right, 0.0f);
+    =}
+
+    initial mode STOPPED {
+        reaction(drive) -> reset(DRIVING), notify, pow_left, pow_right {=
+            if (drive->value) {
+                lf_set_mode(DRIVING);            // Change to DRIVING mode
+                lf_set(notify, "DRIVING");       // Display driving status
+                lf_set(pow_left, 0.0f);          // Set motors to full power
+                lf_set(pow_right, 1.0f);
+            }
+        =}
+    }
+
+    mode DRIVING {
+        reaction(drive) -> reset(STOPPED), notify, pow_left, pow_right {=
+            if (!drive->value) {
+                lf_set_mode(STOPPED);            // Change to STOPPED mode
+                lf_set(notify, "STOPPED");       // Display stopped status
+                lf_set(pow_left, 0.0f);          // Stop both motors
+                lf_set(pow_right, 0.0f);
+            }
+        =}
+    }
+}
+
+main reactor {
+    timer t(0, 2 sec)
+    state drive: bool = false
+    robot = new Robot()
+    display = new Display()
+    motor = new Motors()
+
+    robot.notify -> display.line0
+    robot.pow_left -> motor.left_power
+    robot.pow_right -> motor.right_power
+
+    reaction(t) -> robot.drive {=
+        lf_set(robot.drive, self->drive);        // Toggle drive state
+        self->drive = !self->drive;              // Alternate between true and false
+    =}
+}
