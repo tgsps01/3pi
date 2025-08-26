@@ -1,0 +1,39 @@
+/**
+ * Directly control the LED on the Pololu 3pi+ 2040 robot without SDK functions.
+ * Instead, use memory-mapped I/O to toggle the LED state.
+ * @author
+ */
+ target C {
+  platform: {
+    name: "rp2040",
+    board: "pololu_3pi_2040_robot"
+  },
+  single-threaded: true
+}
+
+preamble {=
+  #include <stdio.h>
+  #define GPIO_BASE 0x40014000
+  #define GPIO_OUT_SET (GPIO_BASE + 0x1C) // Register to set pins
+  #define GPIO_OUT_CLR (GPIO_BASE + 0x28) // Register to clear pins
+  #define GPIO_PIN25 25
+=}
+
+main reactor {
+  timer t(0, 250 ms)
+  timer t1(0, 100ms)
+  state led_on: bool = false
+
+  reaction(startup) {=
+      *(volatile uint32_t *)(GPIO_BASE + 0x04) = (1 << GPIO_PIN25); // Set GPIO 25 as output
+  =}
+
+  reaction(t,t1) {=
+      self->led_on = !self->led_on;
+      if (self->led_on) {
+          *(volatile uint32_t *)(GPIO_OUT_SET) = (1 << GPIO_PIN25); // Set GPIO 25 high
+      } else {
+          *(volatile uint32_t *)(GPIO_OUT_CLR) = (1 << GPIO_PIN25); // Set GPIO 25 low
+      }
+  =}
+}

@@ -1,0 +1,73 @@
+/**
+ * Blink the default LED on the
+ * <a href="https://www.pololu.com/docs/0J86">Pololu 3pi+ 2040 robot</a>.
+ * @author Abhi Gundrala
+ * @author Edward A. Lee
+ */
+target C {
+  platform: {
+    name: "rp2040",
+    board: "pololu_3pi_2040_robot"
+  },
+  single-threaded: true
+}
+
+preamble {=
+  #include <stdio.h>
+
+  #include <pico/stdlib.h>
+  #include <hardware/gpio.h>
+  #define SIO_BASE      0xd0000000
+  #define GPIO_OUT      (SIO_BASE+0x010)
+  #define GPIO_OUT_SET  (SIO_BASE +0x014)
+  #define GPIO_OUT_CLR (SIO_BASE+0x018)
+  #define GPIO_OE      (SIO_BASE+0x020)
+  #define GPIO_OE_SET   (SIO_BASE +0x20)
+=}
+
+main reactor {
+
+  timer t(0, 400 ms)
+  state led_on: bool = false
+  timer t1(0, 300 ms)
+
+  reaction(startup)  {=
+  	
+    gpio_init(PICO_DEFAULT_LED_PIN);
+    *(volatile uint32_t *)GPIO_OE_SET  =1<<25;
+	
+  =}
+	
+  
+  reaction(t) {=
+    self->led_on = !self->led_on;
+    
+    if (self->led_on ==1){
+    *(volatile uint32_t *)GPIO_OUT_SET  =1<<25;
+    printf("On");
+    }
+    else{
+        *(volatile uint32_t *)GPIO_OUT_CLR  =1<<25;
+    printf("Off");
+    }
+    
+   
+    
+    
+   
+  =}
+  reaction(t1) {=
+    self->led_on = !self->led_on;
+      if (self->led_on ==1){
+    printf("On /n");
+    *(volatile uint32_t *)GPIO_OUT_SET  =1<<25;
+    }
+    else{
+    printf("Off /n");
+    }
+    
+        *(volatile uint32_t *)GPIO_OUT_CLR  =1<<25;
+	
+  =}
+
+}
