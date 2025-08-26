@@ -1,0 +1,148 @@
+target C {
+    platform: {
+        name: "rp2040",
+        board: "pololu_3pi_2040_robot"
+    },
+    single-threaded: true
+}
+
+import Line from "lib/Line.lf"
+import Motors from "lib/Motors.lf"
+import Display from "lib/Display.lf"
+import Encoders from "lib/Encoders.lf"
+import GyroAngle from "lib/IMU.lf"
+
+reactor Robot {
+    input drive: bool     
+    output left_power: float  
+    output right_power: float
+    output status: string 
+    input angle_z: float
+    input left: float
+    input right: float
+    input reflectance: uint16_t[5]
+
+    state turn_count: int = 0
+    state initial_angle: float = 0.0
+    state start_distance: float = 0.0
+    state current_angle: float
+
+    timer timer2(0, 300 ms)  
+
+    reaction(angle_z) {=
+        self->current_angle = angle_z->value;
+    =}
+  
+    initial mode STOPPED {
+        reaction(drive, left, right) -> reset(DRIVING), status, left_power, right_power {=
+            if (drive->value) {
+                lf_set_mode(DRIVING);
+                lf_set(status, "DRIVING");
+                lf_set(left_power, 0.085f);
+                lf_set(right_power, 0.085f);
+                self->start_distance = (left->value + right->value) / 2.0f;
+            }
+        =}
+    }
+
+    mode DRIVING {
+        reaction(reflectance) -> reset(DRIVING), status, left_power, right_power {=
+            if (reflectance->value[1] > 600 && reflectance->value[2] > 600 && reflectance->value[3] > 600) {
+                lf_set_mode(DRIVING);
+                lf_set(left_power, 0.085f);
+                lf_set(right_power, 0.085f);
+                lf_set(status, "FORWARD");
+            } else if (reflectance->value[4] > 600 || reflectance->value[1] < 300) {
+                lf_set_mode(DRIVING);
+                lf_set(left_power, 0.085f);
+                lf_set(right_power, 0.0f);
+                lf_set(status, "RIGHT");
+            } else if (reflectance->value[0] > 600 || reflectance->value[3] < 300) {
+                lf_set_mode(DRIVING);
+                lf_set(left_power, 0.0f);
+                lf_set(right_power, 0.085f);
+                lf_set(status, "LEFT");
+            } else if (reflectance->value[1] < 300 && reflectance->value[2] < 300 && reflectance->value[3] < 300 &&
+                       reflectance->value[0] > 300 && reflectance->value[4] > 300) {
+                lf_set_mode(DRIVING);
+                lf_set(left_power, 0.0f);
+                lf_set(right_power, 0.0f);
+                lf_set(status, " END");
+            }
+        =}
+    }
+}
+
+reactor AngleToDistance {
+    input left_ticks: int32_t
+    input right_ticks: int32_t
+    output left: float
+    output right: float
+
+    reaction(left_ticks) -> left {=
+        float distance = (float)(left_ticks->value / 360.0f) * 0.1f;
+        lf_set(left, distance);
+    =}
+
+    reaction(right_ticks) -> right {=
+        float distance = (float)(right_ticks->value / 360.0f) * 0.1f;
+        lf_set(right, distance);
+    =}
+}
+
+main reactor(calibration_time: time = 10 s, sample_period: time = 100 ms) {
+    line_sensor = new Line()
+    display = new Display()
+
+    state drive_active: bool = false
+    robot = new Robot()
+    motors = new Motors()
+    encoders = new Encoders()
+    angle_to_distance = new AngleToDistance()
+    gyro_sensor = new GyroAngle()
+
+    robot.left_power -> motors.left_power
+    robot.right_power -> motors.right_power
+ 
+
+    gyro_sensor.z -> robot.angle_z
+
+    angle_to_distance.left -> robot.left
+    angle_to_distance.right -> robot.right
+
+    timer encoder_timer(0, 1 s)
+    reaction(encoder_timer) -> encoders.trigger {=
+        lf_set(encoders.trigger, true);
+    =}
+
+    timer gyro_timer(0, 10 ms)
+    reaction(gyro_timer) -> gyro_sensor.trigger {=
+        lf_set(gyro_sensor.trigger, true);
+    =}
+
+    timer periodic_trigger(0, sample_period)
+    timer seconds_timer(0, 1 s)  
+    timer calibration_end(calibration_time)
+    state time_elapsed: int = 0
+  
+    reaction(startup) -> display.line1, display.line2, robot.drive {=
+        lf_set(display.line1, "Roll over");
+        lf_set(display.line2, "light and dark.");
+        lf_set(robot.drive, false);
+    =}
+  
+    reaction(seconds_timer) -> display.line3 {=
+        static char buf[17];
+        snprintf(buf, 17, "time: %8d s", self->time_elapsed++);
+        lf_set(display.line3, buf);
+    =}
+  
+    reaction(calibration_end) -> line_sensor.calibrate, robot.drive {=
+        lf_set(line_sensor.calibrate, false);
+        lf_set(robot.drive, true);
+    =}
+  
+    reaction(periodic_trigger) -> line_sensor.trigger {=
+        lf_set(line_sensor.trigger, true);
+    =}
+}
